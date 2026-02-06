@@ -1,0 +1,96 @@
+name: 🔨 Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Ручний запуск з GitHub UI
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      # ── 1. Завантажити код ──
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Встановити Python ──
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      # ── 3. Встановити залежності ──
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ── 4. Перевірка синтаксису всіх файлів ──
+      - name: 🔍 Syntax check
+        run: |
+          python -m py_compile main.py
+          python -m py_compile app/gui.py
+          python -m py_compile app/api_client.py
+          python -m py_compile app/generator.py
+          python -m py_compile app/error_parser.py
+          python -m py_compile app/key_codec.py
+          python -m py_compile app/constants.py
+          echo "✅ All files syntax OK"
+
+      # ── 5. Перевірка імпортів ──
+      - name: 🔗 Import check
+        run: |
+          python -c "from app.gui import App; print('✅ GUI import OK')"
+          python -c "from app.api_client import GistResolver, SheetAPI; print('✅ API import OK')"
+          python -c "from app.generator import AdsGenerator; print('✅ Generator import OK')"
+          python -c "from app.error_parser import parse_error_csv; print('✅ ErrorParser import OK')"
+          python -c "from app.key_codec import smart_decode; print('✅ KeyCodec import OK')"
+
+      # ── 6. Перевірка підключення до Gist ──
+      - name: 🌐 Network check (Gist)
+        run: |
+          python -c "
+          from app.api_client import GistResolver
+          gist = GistResolver()
+          config = gist.fetch_config()
+          assert config.get('script_url'), 'No script_url!'
+          assert config.get('gemini_key'), 'No gemini_key!'
+          assert config.get('gemini_model'), 'No gemini_model!'
+          print(f'✅ Gist OK: source={config[\"_source\"]}, model={config[\"gemini_model\"]}')
+          "
+
+      # ── 7. Збірка .exe ──
+      - name: 🔨 Build EXE
+        run: |
+          python -m PyInstaller Progriv_win.spec --clean --noconfirm
+
+      # ── 8. Перевірка що .exe існує ──
+      - name: 📏 Verify EXE
+        run: |
+          $exe = "dist\Прогрів.exe"
+          if (Test-Path $exe) {
+            $size = (Get-Item $exe).Length / 1MB
+            Write-Host "✅ Прогрів.exe exists: $([math]::Round($size, 1)) MB"
+            if ($size -lt 5) { throw "EXE too small: $size MB" }
+            if ($size -gt 100) { throw "EXE too large: $size MB" }
+          } else {
+            throw "❌ Прогрів.exe not found!"
+          }
+        shell: pwsh
+
+      # ── 9. Smoke-test: запустити .exe і перевірити що не крашиться ──
+      - name: 🧪 Smoke test EXE
+        run: |
+          python tests/smoke_test.py
+        timeout-minutes: 2
+
+      # ── 10. Завантажити готовий .exe як артефакт ──
+      - name: 📤 Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Прогрів-Windows
+          path: dist/Прогрів.exe
+          retention-days: 90
+          if-no-files-found: error
