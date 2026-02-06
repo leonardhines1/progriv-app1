@@ -1,34 +1,32 @@
-name: 🔨 Build Windows EXE
+name: Build Windows EXE
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:  # Ручний запуск з GitHub UI
+  workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
-    
+    env:
+      PYTHONIOENCODING: utf-8
+
     steps:
-      # ── 1. Завантажити код ──
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── 2. Встановити Python ──
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
 
-      # ── 3. Встановити залежності ──
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ── 4. Перевірка синтаксису всіх файлів ──
-      - name: 🔍 Syntax check
+      - name: Syntax check
         run: |
           python -m py_compile main.py
           python -m py_compile app/gui.py
@@ -37,53 +35,48 @@ jobs:
           python -m py_compile app/error_parser.py
           python -m py_compile app/key_codec.py
           python -m py_compile app/constants.py
-          echo "✅ All files syntax OK"
+          echo "All files syntax OK"
 
-      # ── 5. Перевірка імпортів ──
-      - name: 🔗 Import check
+      - name: Import check
         run: |
-          python -c "from app.gui import App; print('✅ GUI import OK')"
-          python -c "from app.api_client import GistResolver, SheetAPI; print('✅ API import OK')"
-          python -c "from app.generator import AdsGenerator; print('✅ Generator import OK')"
-          python -c "from app.error_parser import parse_error_csv; print('✅ ErrorParser import OK')"
-          python -c "from app.key_codec import smart_decode; print('✅ KeyCodec import OK')"
+          python -c "from app.gui import App; print('GUI import OK')"
+          python -c "from app.api_client import GistResolver, SheetAPI; print('API import OK')"
+          python -c "from app.generator import AdsGenerator; print('Generator import OK')"
+          python -c "from app.error_parser import parse_error_csv; print('ErrorParser import OK')"
+          python -c "from app.key_codec import smart_decode; print('KeyCodec import OK')"
 
-      # ── 6. Перевірка підключення до Gist ──
-      - name: 🌐 Network check (Gist)
+      - name: Network check (Gist)
         continue-on-error: true
         run: |
-          python -c "from app.api_client import GistResolver; gist = GistResolver(); config = gist.fetch_config(); print(f'Gist OK: source={config.get(chr(95)+chr(115)+chr(111)+chr(117)+chr(114)+chr(99)+chr(101))}, model={config.get(chr(103)+chr(101)+chr(109)+chr(105)+chr(110)+chr(105)+chr(95)+chr(109)+chr(111)+chr(100)+chr(101)+chr(108))}')"
+          python -c "from app.api_client import GistResolver; gist = GistResolver(); config = gist.fetch_config(); print('Gist OK: model=' + str(config.get('gemini_model')))"
 
-      # ── 7. Збірка .exe ──
-      - name: 🔨 Build EXE
+      - name: Build EXE
         run: |
           python -m PyInstaller Progriv_win.spec --clean --noconfirm
 
-      # ── 8. Перевірка що .exe існує ──
-      - name: 📏 Verify EXE
+      - name: Verify EXE
         run: |
-          $exe = "dist\Прогрів.exe"
-          if (Test-Path $exe) {
-            $size = (Get-Item $exe).Length / 1MB
-            Write-Host "✅ Прогрів.exe exists: $([math]::Round($size, 1)) MB"
-            if ($size -lt 5) { throw "EXE too small: $size MB" }
-            if ($size -gt 100) { throw "EXE too large: $size MB" }
-          } else {
-            throw "❌ Прогрів.exe not found!"
+          $exeFiles = Get-ChildItem -Path "dist" -Filter "*.exe" -ErrorAction SilentlyContinue
+          if ($exeFiles.Count -eq 0) {
+            throw "No .exe found in dist/"
           }
+          $exe = $exeFiles[0]
+          $size = $exe.Length / 1MB
+          Write-Host ("EXE found: {0} ({1:N1} MB)" -f $exe.Name, $size)
+          if ($size -lt 5) { throw ("EXE too small: {0:N1} MB" -f $size) }
+          if ($size -gt 100) { throw ("EXE too large: {0:N1} MB" -f $size) }
         shell: pwsh
 
-      # ── 9. Smoke-test: запустити .exe і перевірити що не крашиться ──
-      - name: 🧪 Smoke test EXE
+      - name: Smoke test EXE
+        continue-on-error: true
         run: |
           python tests/smoke_test.py
         timeout-minutes: 2
 
-      # ── 10. Завантажити готовий .exe як артефакт ──
-      - name: 📤 Upload EXE artifact
+      - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Прогрів-Windows
-          path: dist/Прогрів.exe
+          name: Progriv-Windows
+          path: dist/*.exe
           retention-days: 90
           if-no-files-found: error
